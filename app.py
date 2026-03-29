@@ -1,101 +1,51 @@
 import streamlit as st
 import google.generativeai as genai
-from PIL import Image
+import yfinance as yf
 import pandas as pd
-import matplotlib.pyplot as plt
-import io
+import os
 
-# --- Configuration ---
-# SECURITY UPDATE: Fetch the API key strictly from Streamlit Secrets
-try:
-    api_key = st.secrets["GEMINI_API_KEY"]
-except Exception:
-    st.error("API Key not found! Please configure it in Streamlit Secrets.")
+# 1. Setup API Key (Pulling from Streamlit Secrets for Cloud Deployment)
+# Go to Streamlit Cloud -> Settings -> Secrets and add: GOOGLE_API_KEY = "your_key_here"
+api_key = st.secrets.get("GOOGLE_API_KEY")
+
+if not api_key:
+    st.error("API Key not found. Please set GOOGLE_API_KEY in Streamlit Secrets.")
     st.stop()
 
 genai.configure(api_key=api_key)
 
-# --- Auto-Detect Model (Fix for 404 Errors) ---
-available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-
-if 'models/gemini-1.5-flash' in available_models:
-    selected_model = 'gemini-1.5-flash'
-elif 'models/gemini-1.5-flash-latest' in available_models:
-    selected_model = 'gemini-1.5-flash-latest'
-elif 'models/gemini-1.5-pro' in available_models:
-    selected_model = 'gemini-1.5-pro'
-else:
-    selected_model = available_models[0].replace('models/', '') if available_models else 'gemini-1.5-flash'
-
-model = genai.GenerativeModel(selected_model)
-
-# --- Bug Fix: Constructing backticks dynamically to prevent UI cut-offs ---
-fence = "`" * 3
-
-# --- The System Prompt ---
-SYSTEM_PROMPT = f"""
-You are an elite Quantitative Analyst and Portfolio Strategist. 
-Analyze the uploaded portfolio image. Cross-reference the extracted positions with real-time web research (catalysts, fundamentals, sector context).
-Evaluate the user's current Profit/Loss (P/L) for each position to provide actionable advice.
-
-Output format MUST strictly follow this:
-1. Executive Portfolio Summary
-2. Individual Asset Deep Dives (Entry, Current, P/L, Today's Action, Primary Catalyst, Forward Outlook, Actionable Verdict).
-3. Data Export Module: At the very end, provide ONLY a raw, comma-separated CSV block wrapped in {fence}csv tags containing: Ticker,Entry_Price,Current_Price,PL_Percentage. Do not include $ or % symbols in the CSV numbers.
-"""
+def get_portfolio_analysis(data_summary):
+    """Uses Gemini to provide buy/sell/hold insights."""
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    prompt = f"Analyze this family stock portfolio data and provide brief advice: {data_summary}"
+    response = model.generate_content(prompt)
+    return response.text
 
 # --- Streamlit UI ---
-st.set_page_config(page_title="Family Portfolio Analyzer", layout="wide")
-st.title("📈 The Family Portfolio Analyzer")
-st.write("Upload a screenshot of your stock brokerage app to get real-time, personalized analysis.")
+st.title("📈 Family Portfolio Analyser")
 
-uploaded_file = st.file_uploader("Upload Portfolio Screenshot (PNG/JPG)", type=["png", "jpg", "jpeg"])
+# Input for stock tickers
+tickers_input = st.text_input("Enter Stock Tickers (comma separated, e.g., AAPL, TSLA, MSFT)", "AAPL, GOOGL")
+tickers = [t.strip().upper() for t in tickers_input.split(",")]
 
-if uploaded_file is not None:
-    image = Image.open(uploaded_file)
-    st.image(image, caption="Uploaded Portfolio", use_container_width=True)
-    
-    if st.button("Analyze Portfolio"):
-        with st.spinner("Executing deep web research and analyzing positions..."):
-            try:
-                # Call the Gemini API with the image and prompt
-                response = model.generate_content([SYSTEM_PROMPT, image])
-                full_text = response.text
+if st.button("Analyze Portfolio"):
+    with st.spinner("Fetching market data..."):
+        try:
+            # Fetch data using yfinance
+            data = yf.download(tickers, period="5d", interval="1d")['Close']
+            
+            if not data.empty:
+                st.subheader("Current Market Prices")
+                st.dataframe(data.tail(1))
                 
-                # Using the dynamic fence to safely split the text
-                split_target = f"{fence}csv"
-                end_target = f"{fence}"
+                # Prepare summary for AI
+                summary = data.tail(1).to_string()
                 
-                # Split the text to separate the markdown analysis from the CSV data
-                if split_target in full_text:
-                    analysis_part, csv_part = full_text.split(split_target)
-                    csv_data = csv_part.split(end_target)[0].strip()
-                else:
-                    analysis_part = full_text
-                    csv_data = None
-
-                # Display the Markdown Analysis
-                st.markdown(analysis_part)
-
-                # --- EDA & Visualization ---
-                if csv_data:
-                    st.divider()
-                    st.subheader("📊 Visual Performance Breakdown")
-                    
-                    # Load the CSV data directly into a pandas DataFrame
-                    df = pd.read_csv(io.StringIO(csv_data))
-                    
-                    # Create a bar chart of Profit/Loss percentages using matplotlib
-                    fig, ax = plt.subplots(figsize=(10, 5))
-                    colors = ['green' if val > 0 else 'red' for val in df['PL_Percentage']]
-                    ax.bar(df['Ticker'], df['PL_Percentage'], color=colors)
-                    
-                    ax.set_ylabel('Profit / Loss (%)')
-                    ax.set_title('Current P/L per Asset')
-                    ax.axhline(0, color='black', linewidth=1)
-                    plt.xticks(rotation=45)
-                    
-                    st.pyplot(fig)
-                    
-            except Exception as e:
-                st.error(f"An error occurred: {e}")
+                st.subheader("AI Analysis & Strategy")
+                analysis = get_portfolio_analysis(summary)
+                st.write(analysis)
+            else:
+                st.warning("No data found for these tickers.")
+                
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
