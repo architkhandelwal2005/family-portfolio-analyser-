@@ -6,11 +6,16 @@ import matplotlib.pyplot as plt
 import io
 
 # --- Configuration ---
-# Your API key must be wrapped in quotation marks!
-genai.configure(api_key="AIzaSyCJvXsx6AsOzYzz82CF9ZwSqlJwco5IYok")
+# SECURITY UPDATE: Fetch the API key strictly from Streamlit Secrets
+try:
+    api_key = st.secrets["GEMINI_API_KEY"]
+except Exception:
+    st.error("API Key not found! Please configure it in Streamlit Secrets.")
+    st.stop()
+
+genai.configure(api_key=api_key)
 
 # --- Auto-Detect Model (Fix for 404 Errors) ---
-# Instead of guessing, we ask Google exactly which models your API key is allowed to use.
 available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
 
 if 'models/gemini-1.5-flash' in available_models:
