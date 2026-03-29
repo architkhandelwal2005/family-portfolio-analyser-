@@ -73,10 +73,9 @@ if uploaded_file:
     if st.button("🚀 Execute Strategic Analysis"):
         with st.spinner("Parsing vision data and conducting real-time market research..."):
             try:
-                # Initialize Gemini 1.5 Flash (supports Image + Search)
+                # UPDATED: Using gemini-2.0-flash for current compatibility
                 model = genai.GenerativeModel(
-                    model_name="gemini-1.5-flash",
-                    generation_config={"temperature": 0.1} # Lower temperature for data accuracy
+                    model_name="gemini-2.0-flash"
                 )
                 
                 # Generate content
@@ -87,6 +86,7 @@ if uploaded_file:
                 
             except Exception as e:
                 st.error(f"Critical Error: {str(e)}")
+                st.info("Tip: If you still see a 404, try changing 'gemini-2.0-flash' to 'gemini-1.5-flash-latest' in the code.")
 
 else:
     st.info("Awaiting portfolio image upload...")
